@@ -694,7 +694,7 @@ func GetUnknownCoinsFromDB(fromPRVIndex, fromTokenIndex map[int]uint64) []shared
 
 func GetUnknownCoinsV2(shardID int, fromIndex uint64, tokenID string) []shared.CoinData {
 	var result []shared.CoinData
-	coinList, err := database.DBGetUnknownCoinsV21(shardID, common.PRVCoinID.String(), int64(fromIndex), 10000)
+	coinList, err := database.DBGetUnknownCoinsV21(shardID, tokenID, int64(fromIndex), 10000)
 	if err != nil {
 		panic(err)
 	}
