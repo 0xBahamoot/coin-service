@@ -109,10 +109,9 @@ func filterCoinsByOTAKeyV2(coinList []shared.CoinData, keys []*OTAkeyInfo, token
 			close(tempOTACoinsCh)
 			for k := range tempOTACoinsCh {
 				for key, coin := range k {
-					// if key == "nil" {
-					// 	otherCoins = append(otherCoins, coin)
-					// 	continue
-					// }
+					if key == "nil" {
+						continue
+					}
 					// otaCoins[key] = append(otaCoins[key], coin)
 					coin.OTASecret = key
 					indexedCoins = append(indexedCoins, coin)
