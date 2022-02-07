@@ -21,72 +21,80 @@ import (
 
 func OnNewShardBlock(bc *blockchain.BlockChain, h common.Hash, height uint64, chainID int) {
 	var blk types.ShardBlock
-	blkBytes, err := Localnode.GetUserDatabase().Get(h.Bytes(), nil)
-	if err != nil {
-		i := 0
-	retry:
-		if i == 5 {
-			panic("OnNewShardBlock err")
-		}
-		fmt.Println("err get block height", height, h.String())
-		blkBytes, err = Localnode.SyncSpecificShardBlockBytes(chainID, height, h.String())
-		if err != nil {
-			fmt.Println(err)
-			i++
-			goto retry
-		}
-	}
-	if err := json.Unmarshal(blkBytes, &blk); err != nil {
-		panic(err)
-	}
-	blockHash := blk.Hash().String()
-	blockHeight := blk.GetHeight()
-	shardID := blk.GetShardID()
-	log.Printf("start processing coin for block %v shard %v\n", blk.GetHeight(), shardID)
+	var blockHash string
+	var blockHeight uint64
+	var err error
+	shardID := chainID
+
 	startTime := time.Now()
-	if len(blk.Body.Transactions) > 0 {
-		err = bc.CreateAndSaveTxViewPointFromBlock(&blk, TransactionStateDB[byte(shardID)])
+	if !useFullnodeData {
+		blkBytes, err := Localnode.GetUserDatabase().Get(h.Bytes(), nil)
+		if err != nil {
+			i := 0
+		retry:
+			if i == 5 {
+				panic("OnNewShardBlock err")
+			}
+			fmt.Println("err get block height", height, h.String())
+			blkBytes, err = Localnode.SyncSpecificShardBlockBytes(chainID, height, h.String())
+			if err != nil {
+				fmt.Println(err)
+				i++
+				goto retry
+			}
+		}
+		if err := json.Unmarshal(blkBytes, &blk); err != nil {
+			panic(err)
+		}
+		blockHash = blk.Hash().String()
+		blockHeight = blk.GetHeight()
+		log.Printf("start processing coin for block %v shard %v\n", blk.GetHeight(), shardID)
+		if len(blk.Body.Transactions) > 0 {
+			err = bc.CreateAndSaveTxViewPointFromBlock(&blk, TransactionStateDB[byte(shardID)])
+			if err != nil {
+				panic(err)
+			}
+		}
+		// Store Incomming Cross Shard
+		if len(blk.Body.CrossTransactions) > 0 {
+			if err := bc.CreateAndSaveCrossTransactionViewPointFromBlock(&blk, TransactionStateDB[byte(shardID)]); err != nil {
+				panic(err)
+			}
+		}
+		transactionRootHash, err := TransactionStateDB[byte(shardID)].Commit(true)
 		if err != nil {
 			panic(err)
 		}
-	}
-	// Store Incomming Cross Shard
-	if len(blk.Body.CrossTransactions) > 0 {
-		if err := bc.CreateAndSaveCrossTransactionViewPointFromBlock(&blk, TransactionStateDB[byte(shardID)]); err != nil {
+		err = TransactionStateDB[byte(shardID)].Database().TrieDB().Commit(transactionRootHash, false)
+		if err != nil {
 			panic(err)
 		}
-	}
-	transactionRootHash, err := TransactionStateDB[byte(shardID)].Commit(true)
-	if err != nil {
-		panic(err)
-	}
-	err = TransactionStateDB[byte(shardID)].Database().TrieDB().Commit(transactionRootHash, false)
-	if err != nil {
-		panic(err)
-	}
-	bc.GetBestStateShard(byte(blk.GetShardID())).TransactionStateDBRootHash = transactionRootHash
-
-	TransactionStateDB[byte(shardID)].ClearObjects()
-
-	batchData := bc.GetShardChainDatabase(blk.Header.ShardID).NewBatch()
-	err = bc.BackupShardViews(batchData, blk.Header.ShardID)
-	if err != nil {
-		panic("Backup shard view error")
-	}
-	if err := batchData.Write(); err != nil {
-		panic(err)
+		bc.GetBestStateShard(byte(blk.GetShardID())).TransactionStateDBRootHash = transactionRootHash
+		TransactionStateDB[byte(shardID)].ClearObjects()
+	} else {
+		TransactionStateDB[byte(blk.GetShardID())] = Localnode.GetBlockchain().GetBestStateTransactionStateDB(byte(shardID))
 	}
 
 	crossShardCoinMap := make(map[string]string)
-	for _, txlist := range blk.Body.CrossTransactions {
+	for sID, txlist := range blk.Body.CrossTransactions {
 		for _, tx := range txlist {
 			var crsblk types.ShardBlock
-		retryGetBlock:
 			blkBytes, err := Localnode.GetUserDatabase().Get(tx.BlockHash.Bytes(), nil)
 			if err != nil {
-				log.Println(err)
-				time.Sleep(5 * time.Second)
-				goto retryGetBlock
+				i := 0
+			retryGetBlock:
+				if i == 5 {
+					panic("OnNewShardBlock err")
+				}
+				fmt.Println("tx.BlockHash.String()", tx.BlockHash.String())
+				blkBytes, err = Localnode.SyncSpecificShardBlockBytes(int(sID), 0, tx.BlockHash.String())
+				if err != nil {
+					fmt.Println(err)
+					i++
+					panic("OnNewShardBlock err")
+					time.Sleep(5 * time.Second)
+					goto retryGetBlock
+				}
 			}
 			if err := json.Unmarshal(blkBytes, &crsblk); err != nil {
 				panic(err)
@@ -520,6 +528,18 @@ func OnNewShardBlock(bc *blockchain.BlockChain, h common.Hash, height uint64, ch
 	if err != nil {
 		panic(err)
 	}
+
+	if !useFullnodeData {
+		batchData := bc.GetShardChainDatabase(blk.Header.ShardID).NewBatch()
+		err = bc.BackupShardViews(batchData, blk.Header.ShardID)
+		if err != nil {
+			panic("Backup shard view error")
+		}
+		if err := batchData.Write(); err != nil {
+			panic(err)
+		}
+	}
+
 	blockProcessedLock.Lock()
 	blockProcessed[shardID] = blk.Header.Height
 	blockProcessedLock.Unlock()
