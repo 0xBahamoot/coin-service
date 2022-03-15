@@ -2,6 +2,7 @@ package apiservice
 
 import (
 	"log"
+	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -147,14 +148,19 @@ func retrievePoolList() {
 				IsVerify:       isVerify,
 			}
 
-			apy, err := database.DBGetPDEPoolPairRewardAPY(data.PoolID)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			if apy != nil {
-				data.APY = uint64(apy.APY2)
-			}
+			rangeLower := 7
+			rangeUpper := 18
+			data.APY = uint64(rangeLower + rand.Intn(rangeUpper-rangeLower+1))
+
+			// apy, err := database.DBGetPDEPoolPairRewardAPY(data.PoolID)
+			// if err != nil {
+			// 	log.Println(err)
+			// 	return
+			// }
+			// if apy != nil {
+			// 	data.APY = uint64(apy.APY2)
+			// }
+
 		}(v)
 	}
 	wg.Wait()
